@@ -175,8 +175,6 @@ func (tr *Tree) scan(n *nodeT, iter func(cell uint64, data unsafe.Pointer, extra
 	return true
 }
 
-//func (tr *Tree) RemoveWhen(cell uint64, match func(cell uint64, data unsafe.Pointer, extra uint64) bool
-
 // Range iterates over the three start with the cell param.
 func (tr *Tree) Range(cell uint64, iter func(cell uint64, key unsafe.Pointer, extra uint64) bool) {
 	if tr.root == nil {
