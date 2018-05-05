@@ -17,15 +17,16 @@ type cellT struct {
 }
 
 type nodeT struct {
-	branch bool
-	items  []cellT
-	nodes  []*nodeT
+	branch bool     // is a branch (not a leaf)
+	items  []cellT  // leaf items
+	nodes  []*nodeT // child nodes
+	ncount int      // tracks non-nil nodes
 }
 
 // Tree is a uint64 prefix tree
 type Tree struct {
-	len  int
-	root *nodeT
+	len  int    // number of items in tree
+	root *nodeT // root node
 }
 
 // Insert inserts an item into the tree. Items are ordered by it's cell.
@@ -57,6 +58,7 @@ func (tr *Tree) insert(n *nodeT, cell uint64, data unsafe.Pointer, extra uint64,
 	}
 	if n.nodes[i] == nil {
 		n.nodes[i] = new(nodeT)
+		n.ncount++
 	}
 	tr.insert(n.nodes[i], cell, data, extra, bits-nBits)
 }
@@ -106,7 +108,6 @@ func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint,
 			if n.items[i].id != cell {
 				break
 			}
-
 			if (cond == nil && n.items[i].data == data) ||
 				(cond != nil && cond(n.items[i].data, n.items[i].extra)) {
 				n.items[i] = cellT{}
@@ -120,16 +121,18 @@ func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint,
 	i := int(cell >> bits & (nNodes - 1))
 	if i >= len(n.nodes) || n.nodes[i] == nil ||
 		!tr.remove(n.nodes[i], cell, data, bits-nBits, cond) {
+		// didn't find the cell
 		return false
 	}
 	if !n.nodes[i].branch && len(n.nodes[i].items) == 0 {
+		// target leaf is empty, remove it.
 		n.nodes[i] = nil
-		for i := 0; i < len(n.nodes); i++ {
-			if n.nodes[i] != nil {
-				return true
-			}
+		n.ncount--
+		if n.ncount == 0 {
+			// node is empty, convert it to a leaf
+			n.branch = false
+			n.items = nil
 		}
-		n.branch = false
 	}
 	return true
 }
