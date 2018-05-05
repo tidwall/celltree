@@ -106,8 +106,9 @@ func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint,
 			if n.items[i].id != cell {
 				break
 			}
+
 			if (cond == nil && n.items[i].data == data) ||
-				cond(n.items[i].data, n.items[i].extra) {
+				(cond != nil && cond(n.items[i].data, n.items[i].extra)) {
 				n.items[i] = cellT{}
 				copy(n.items[i:len(n.items)-1], n.items[i+1:])
 				n.items = n.items[:len(n.items)-1]
