@@ -133,7 +133,8 @@ func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint,
 	return true
 }
 
-// RemoveWhen removes an item from the tree based on it's cell and when the cond func returns true.
+// RemoveWhen removes an item from the tree based on it's cell and
+// when the cond func returns true. It will delete at most a maximum of one item.
 func (tr *Tree) RemoveWhen(cell uint64, cond func(data unsafe.Pointer, extra uint64) bool) {
 	if tr.root == nil {
 		return
