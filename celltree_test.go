@@ -127,20 +127,40 @@ func TestRandom(t *testing.T) {
 	}
 }
 
-// func TestExample(t *testing.T) {
-// 	var tr Tree
+func TestWhen(t *testing.T) {
+	var tr Tree
 
-// 	tr.Insert(10, nil, 0)
-// 	tr.Insert(5, nil, 0)
-// 	tr.Insert(31, nil, 0)
-// 	tr.Insert(16, nil, 0)
-// 	tr.Insert(9, nil, 0)
+	tr.Insert(10, nil, 0)
+	tr.Insert(5, nil, 1)
+	tr.Insert(31, nil, 2)
+	tr.Insert(16, nil, 3)
+	tr.Insert(9, nil, 4)
+	tr.Insert(5, nil, 5)
+	tr.Insert(16, nil, 6)
 
-// 	tr.Scan(func(cell uint64, value unsafe.Pointer, extra uint64) bool {
-// 		println(cell)
-// 		return true
-// 	})
-// }
+	var count int
+	tr.RemoveWhen(16, func(data unsafe.Pointer, extra uint64) bool {
+		count++
+		return false
+	})
+	if count != 2 {
+		t.Fatalf("expected %v, got %v", 2, count)
+	}
+	if tr.Len() != 7 {
+		t.Fatalf("expected %v, got %v", 7, tr.Len())
+	}
+
+	tr.RemoveWhen(16, func(data unsafe.Pointer, extra uint64) bool {
+		if extra == 3 {
+			return true
+		}
+		return false
+	})
+	if tr.Len() != 6 {
+		t.Fatalf("expected %v, got %v", 6, tr.Len())
+	}
+
+}
 
 type perfCtx struct {
 	_insert func(cell uint64)

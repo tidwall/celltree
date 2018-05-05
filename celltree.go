@@ -92,19 +92,22 @@ func (tr *Tree) Remove(cell uint64, data unsafe.Pointer) {
 	if tr.root == nil {
 		return
 	}
-	if tr.remove(tr.root, cell, data, 64-nBits) {
+	if tr.remove(tr.root, cell, data, 64-nBits, nil) {
 		tr.len--
 	}
 }
 
-func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint) bool {
+func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint,
+	cond func(data unsafe.Pointer, extra uint64) bool,
+) bool {
 	if !n.branch {
 		i := tr.find(n, cell) - 1
 		for ; i >= 0; i-- {
 			if n.items[i].id != cell {
 				break
 			}
-			if n.items[i].data == data {
+			if (cond == nil && n.items[i].data == data) ||
+				cond(n.items[i].data, n.items[i].extra) {
 				n.items[i] = cellT{}
 				copy(n.items[i:len(n.items)-1], n.items[i+1:])
 				n.items = n.items[:len(n.items)-1]
@@ -115,7 +118,7 @@ func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint) bo
 	}
 	i := int(cell >> bits & (nNodes - 1))
 	if i >= len(n.nodes) || n.nodes[i] == nil ||
-		!tr.remove(n.nodes[i], cell, data, bits-nBits) {
+		!tr.remove(n.nodes[i], cell, data, bits-nBits, cond) {
 		return false
 	}
 	if !n.nodes[i].branch && len(n.nodes[i].items) == 0 {
@@ -128,6 +131,16 @@ func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint) bo
 		n.branch = false
 	}
 	return true
+}
+
+// RemoveWhen removes an item from the tree based on it's cell and when the cond func returns true.
+func (tr *Tree) RemoveWhen(cell uint64, cond func(data unsafe.Pointer, extra uint64) bool) {
+	if tr.root == nil {
+		return
+	}
+	if tr.remove(tr.root, cell, nil, 64-nBits, cond) {
+		tr.len--
+	}
 }
 
 // Scan iterates over the entire tree. Return false from the iter function to stop.
@@ -156,6 +169,8 @@ func (tr *Tree) scan(n *nodeT, iter func(cell uint64, data unsafe.Pointer, extra
 	}
 	return true
 }
+
+//func (tr *Tree) RemoveWhen(cell uint64, match func(cell uint64, data unsafe.Pointer, extra uint64) bool
 
 // Range iterates over the three start with the cell param.
 func (tr *Tree) Range(cell uint64, iter func(cell uint64, key unsafe.Pointer, extra uint64) bool) {
