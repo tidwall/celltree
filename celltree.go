@@ -4,16 +4,13 @@
 
 package celltree
 
-import "unsafe"
-
 const maxItems = 256 // max items per node
 const nBits = 8      // 1, 2,  4,   8  - match nNodes with the correct nBits
 const nNodes = 256   // 2, 4, 16, 256  - match nNodes with the correct nBits
 
 type cellT struct {
-	id    uint64
-	extra uint64
-	data  unsafe.Pointer
+	id   uint64
+	data interface{}
 }
 
 type nodeT struct {
@@ -31,25 +28,25 @@ type Tree struct {
 
 // Insert inserts an item into the tree. Items are ordered by it's cell.
 // The extra param is a simple user context value.
-func (tr *Tree) Insert(cell uint64, data unsafe.Pointer, extra uint64) {
+func (tr *Tree) Insert(cell uint64, data interface{}) {
 	if tr.root == nil {
 		tr.root = new(nodeT)
 	}
-	tr.insert(tr.root, cell, data, extra, 64-nBits)
+	tr.insert(tr.root, cell, data, 64-nBits)
 	tr.len++
 }
 
-func (tr *Tree) insert(n *nodeT, cell uint64, data unsafe.Pointer, extra uint64, bits uint) {
+func (tr *Tree) insert(n *nodeT, cell uint64, data interface{}, bits uint) {
 	if !n.branch {
 		if bits == 0 || len(n.items) < maxItems {
 			i := tr.find(n, cell)
 			n.items = append(n.items, cellT{})
 			copy(n.items[i+1:], n.items[i:len(n.items)-1])
-			n.items[i] = cellT{id: cell, extra: extra, data: data}
+			n.items[i] = cellT{id: cell, data: data}
 			return
 		}
 		tr.split(n, bits)
-		tr.insert(n, cell, data, extra, bits)
+		tr.insert(n, cell, data, bits)
 		return
 	}
 	i := int(cell >> bits & (nNodes - 1))
@@ -60,7 +57,7 @@ func (tr *Tree) insert(n *nodeT, cell uint64, data unsafe.Pointer, extra uint64,
 		n.nodes[i] = new(nodeT)
 		n.ncount++
 	}
-	tr.insert(n.nodes[i], cell, data, extra, bits-nBits)
+	tr.insert(n.nodes[i], cell, data, bits-nBits)
 }
 
 // Len returns the number of items in the tree.
@@ -71,7 +68,7 @@ func (tr *Tree) Len() int {
 func (tr *Tree) split(n *nodeT, bits uint) {
 	n.branch = true
 	for i := 0; i < len(n.items); i++ {
-		tr.insert(n, n.items[i].id, n.items[i].data, n.items[i].extra, bits)
+		tr.insert(n, n.items[i].id, n.items[i].data, bits)
 	}
 	n.items = nil
 }
@@ -90,7 +87,7 @@ func (tr *Tree) find(n *nodeT, cell uint64) int {
 }
 
 // Remove removes an item from the tree based on it's cell and data values.
-func (tr *Tree) Remove(cell uint64, data unsafe.Pointer) {
+func (tr *Tree) Remove(cell uint64, data interface{}) {
 	if tr.root == nil {
 		return
 	}
@@ -99,8 +96,8 @@ func (tr *Tree) Remove(cell uint64, data unsafe.Pointer) {
 	}
 }
 
-func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint,
-	cond func(data unsafe.Pointer, extra uint64) bool,
+func (tr *Tree) remove(n *nodeT, cell uint64, data interface{}, bits uint,
+	cond func(data interface{}) bool,
 ) bool {
 	if !n.branch {
 		i := tr.find(n, cell) - 1
@@ -109,7 +106,7 @@ func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint,
 				break
 			}
 			if (cond == nil && n.items[i].data == data) ||
-				(cond != nil && cond(n.items[i].data, n.items[i].extra)) {
+				(cond != nil && cond(n.items[i].data)) {
 				n.items[i] = cellT{}
 				copy(n.items[i:len(n.items)-1], n.items[i+1:])
 				n.items = n.items[:len(n.items)-1]
@@ -139,7 +136,7 @@ func (tr *Tree) remove(n *nodeT, cell uint64, data unsafe.Pointer, bits uint,
 
 // RemoveWhen removes an item from the tree based on it's cell and
 // when the cond func returns true. It will delete at most a maximum of one item.
-func (tr *Tree) RemoveWhen(cell uint64, cond func(data unsafe.Pointer, extra uint64) bool) {
+func (tr *Tree) RemoveWhen(cell uint64, cond func(data interface{}) bool) {
 	if tr.root == nil {
 		return
 	}
@@ -149,17 +146,17 @@ func (tr *Tree) RemoveWhen(cell uint64, cond func(data unsafe.Pointer, extra uin
 }
 
 // Scan iterates over the entire tree. Return false from the iter function to stop.
-func (tr *Tree) Scan(iter func(cell uint64, data unsafe.Pointer, extra uint64) bool) {
+func (tr *Tree) Scan(iter func(cell uint64, data interface{}) bool) {
 	if tr.root == nil {
 		return
 	}
 	tr.scan(tr.root, iter)
 }
 
-func (tr *Tree) scan(n *nodeT, iter func(cell uint64, data unsafe.Pointer, extra uint64) bool) bool {
+func (tr *Tree) scan(n *nodeT, iter func(cell uint64, data interface{}) bool) bool {
 	if !n.branch {
 		for i := 0; i < len(n.items); i++ {
-			if !iter(n.items[i].id, n.items[i].data, n.items[i].extra) {
+			if !iter(n.items[i].id, n.items[i].data) {
 				return false
 			}
 		}
@@ -176,14 +173,14 @@ func (tr *Tree) scan(n *nodeT, iter func(cell uint64, data unsafe.Pointer, extra
 }
 
 // Range iterates over the three start with the cell param.
-func (tr *Tree) Range(cell uint64, iter func(cell uint64, key unsafe.Pointer, extra uint64) bool) {
+func (tr *Tree) Range(cell uint64, iter func(cell uint64, key interface{}) bool) {
 	if tr.root == nil {
 		return
 	}
 	tr._range(tr.root, cell, 64-nBits, iter)
 }
 
-func (tr *Tree) _range(n *nodeT, cell uint64, bits uint, iter func(cell uint64, data unsafe.Pointer, extra uint64) bool) (hit, ok bool) {
+func (tr *Tree) _range(n *nodeT, cell uint64, bits uint, iter func(cell uint64, data interface{}) bool) (hit, ok bool) {
 	if !n.branch {
 		hit = true
 		i := tr.find(n, cell) - 1
@@ -194,7 +191,7 @@ func (tr *Tree) _range(n *nodeT, cell uint64, bits uint, iter func(cell uint64, 
 		}
 		i++
 		for ; i < len(n.items); i++ {
-			if !iter(n.items[i].id, n.items[i].data, n.items[i].extra) {
+			if !iter(n.items[i].id, n.items[i].data) {
 				return hit, false
 			}
 		}

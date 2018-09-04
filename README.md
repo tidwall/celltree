@@ -2,7 +2,7 @@
 
 [![GoDoc](https://img.shields.io/badge/api-reference-blue.svg?style=flat-square)](https://godoc.org/github.com/tidwall/celltree)
 
-A fast in-memory prefix tree that uses uint64 for keys, unsafe.Pointer for values, and allows for duplicate entries.
+A fast in-memory prefix tree that uses uint64 for keys, interface{} for data, and allows for duplicate entries.
 
 # Getting Started
 
@@ -19,13 +19,13 @@ $ go get -u github.com/tidwall/celltree
 ```go
 var tr celltree.Tree
 
-tr.Insert(10, nil, 0)
-tr.Insert(5, nil, 0)
-tr.Insert(31, nil, 0)
-tr.Insert(16, nil, 0)
-tr.Insert(9, nil, 0)
+tr.Insert(10, nil)
+tr.Insert(5, nil)
+tr.Insert(31, nil)
+tr.Insert(16, nil)
+tr.Insert(9, nil)
 
-tr.Scan(func(cell uint64, value unsafe.Pointer, extra uint64) bool {
+tr.Scan(func(cell uint64, data interface{}) bool {
     println(cell)
     return true
 })

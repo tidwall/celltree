@@ -12,7 +12,6 @@ import (
 	"sort"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/google/btree"
 	"github.com/tidwall/lotsa"
@@ -82,13 +81,13 @@ func TestRandom(t *testing.T) {
 		ints := random(N, rand.Int()%2 == 0)
 		var tr Tree
 		for i := 0; i < N; i++ {
-			tr.Insert(ints[i], nil, 0)
+			tr.Insert(ints[i], nil)
 		}
 		if tr.Len() != N {
 			t.Fatalf("expected %v, got %v", N, tr.Len())
 		}
 		var all []uint64
-		tr.Scan(func(cell uint64, data unsafe.Pointer, extra uint64) bool {
+		tr.Scan(func(cell uint64, data interface{}) bool {
 			all = append(all, cell)
 			return true
 		})
@@ -97,7 +96,7 @@ func TestRandom(t *testing.T) {
 			shuffle(ints)
 			start := ints[len(ints)/2]
 			var all []uint64
-			tr.Range(start, func(cell uint64, data unsafe.Pointer, extra uint64) bool {
+			tr.Range(start, func(cell uint64, data interface{}) bool {
 				all = append(all, cell)
 				return true
 			})
@@ -130,16 +129,16 @@ func TestRandom(t *testing.T) {
 func TestWhen(t *testing.T) {
 	var tr Tree
 
-	tr.Insert(10, nil, 0)
-	tr.Insert(5, nil, 1)
-	tr.Insert(31, nil, 2)
-	tr.Insert(16, nil, 3)
-	tr.Insert(9, nil, 4)
-	tr.Insert(5, nil, 5)
-	tr.Insert(16, nil, 6)
+	tr.Insert(10, 0)
+	tr.Insert(5, 1)
+	tr.Insert(31, 2)
+	tr.Insert(16, 3)
+	tr.Insert(9, 4)
+	tr.Insert(5, 5)
+	tr.Insert(16, 6)
 
 	var count int
-	tr.RemoveWhen(16, func(data unsafe.Pointer, extra uint64) bool {
+	tr.RemoveWhen(16, func(data interface{}) bool {
 		count++
 		return false
 	})
@@ -150,8 +149,8 @@ func TestWhen(t *testing.T) {
 		t.Fatalf("expected %v, got %v", 7, tr.Len())
 	}
 
-	tr.RemoveWhen(16, func(data unsafe.Pointer, extra uint64) bool {
-		if extra == 3 {
+	tr.RemoveWhen(16, func(data interface{}) bool {
+		if data.(int) == 3 {
 			return true
 		}
 		return false
@@ -181,15 +180,15 @@ func TestPerf(t *testing.T) {
 		println("-- celltree --")
 		var tr Tree
 		ctx := perfCtx{
-			_insert: func(cell uint64) { tr.Insert(cell, nil, 0) },
+			_insert: func(cell uint64) { tr.Insert(cell, nil) },
 			_count:  func() int { return tr.Len() },
 			_scan: func() {
-				tr.Scan(func(cell uint64, data unsafe.Pointer, extra uint64) bool {
+				tr.Scan(func(cell uint64, data interface{}) bool {
 					return true
 				})
 			},
 			_range: func(cell uint64, iter func(cell uint64) bool) {
-				tr.Range(cell, func(cell uint64, data unsafe.Pointer, extra uint64) bool {
+				tr.Range(cell, func(cell uint64, data interface{}) bool {
 					return iter(cell)
 				})
 			},
@@ -319,7 +318,7 @@ func TestPerfLongTime(t *testing.T) {
 	// insert all items
 
 	for i := 0; i < len(ints); i++ {
-		tr.Insert(ints[i], nil, 0)
+		tr.Insert(ints[i], nil)
 		insops++
 	}
 	insdur += time.Since(start)
@@ -335,7 +334,7 @@ func TestPerfLongTime(t *testing.T) {
 		remdur += time.Since(xstart)
 		xstart = time.Now()
 		for i := x; i < len(ints); i += 4 {
-			tr.Insert(ints[i], nil, 0)
+			tr.Insert(ints[i], nil)
 			insops++
 		}
 		insdur += time.Since(xstart)
