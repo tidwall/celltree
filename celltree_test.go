@@ -18,7 +18,6 @@ import (
 )
 
 func init() {
-	//var seed int64 = 1520031745261947354
 	seed := (time.Now().UnixNano())
 	println("seed:", seed)
 	rand.Seed(seed)
@@ -83,8 +82,8 @@ func TestRandom(t *testing.T) {
 		for i := 0; i < N; i++ {
 			tr.Insert(ints[i], nil)
 		}
-		if tr.Len() != N {
-			t.Fatalf("expected %v, got %v", N, tr.Len())
+		if tr.Count() != N {
+			t.Fatalf("expected %v, got %v", N, tr.Count())
 		}
 		var all []uint64
 		tr.Scan(func(cell uint64, data interface{}) bool {
@@ -114,14 +113,14 @@ func TestRandom(t *testing.T) {
 		for i := 0; i < len(ints)/2; i++ {
 			tr.Remove(ints[i], nil)
 		}
-		if tr.Len() != N/2 {
-			t.Fatalf("expected %v, got %v", N/2, tr.Len())
+		if tr.Count() != N/2 {
+			t.Fatalf("expected %v, got %v", N/2, tr.Count())
 		}
 		for i := len(ints) / 2; i < len(ints); i++ {
 			tr.Remove(ints[i], nil)
 		}
-		if tr.Len() != 0 {
-			t.Fatalf("expected %v, got %v", 0, tr.Len())
+		if tr.Count() != 0 {
+			t.Fatalf("expected %v, got %v", 0, tr.Count())
 		}
 	}
 }
@@ -145,8 +144,8 @@ func TestWhen(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("expected %v, got %v", 2, count)
 	}
-	if tr.Len() != 7 {
-		t.Fatalf("expected %v, got %v", 7, tr.Len())
+	if tr.Count() != 7 {
+		t.Fatalf("expected %v, got %v", 7, tr.Count())
 	}
 
 	tr.RemoveWhen(16, func(data interface{}) bool {
@@ -155,10 +154,9 @@ func TestWhen(t *testing.T) {
 		}
 		return false
 	})
-	if tr.Len() != 6 {
-		t.Fatalf("expected %v, got %v", 6, tr.Len())
+	if tr.Count() != 6 {
+		t.Fatalf("expected %v, got %v", 6, tr.Count())
 	}
-
 }
 
 type perfCtx struct {
@@ -175,52 +173,93 @@ func (v btreeItem) Less(v2 btree.Item) bool {
 	return v < v2.(btreeItem)
 }
 
+func printPerfLabel(label string, randomized, shuffled bool) {
+	print("-- " + label + " (")
+	if randomized {
+		print("randomized")
+	} else {
+		print("sequential")
+	}
+	if shuffled {
+		print(",shuffled")
+	} else {
+		print(",ordered")
+	}
+	println(") --")
+}
 func TestPerf(t *testing.T) {
-	t.Run("CellTree", func(t *testing.T) {
-		println("-- celltree --")
-		var tr Tree
-		ctx := perfCtx{
-			_insert: func(cell uint64) { tr.Insert(cell, nil) },
-			_count:  func() int { return tr.Len() },
-			_scan: func() {
-				tr.Scan(func(cell uint64, data interface{}) bool {
-					return true
-				})
-			},
-			_range: func(cell uint64, iter func(cell uint64) bool) {
-				tr.Range(cell, func(cell uint64, data interface{}) bool {
-					return iter(cell)
-				})
-			},
-			_remove: func(cell uint64) { tr.Remove(cell, nil) },
-		}
-		testPerf(t, ctx)
-	})
-	t.Run("BTree", func(t *testing.T) {
-		println("-- btree --")
-		tr := btree.New(16)
-		ctx := perfCtx{
-			_insert: func(cell uint64) { tr.ReplaceOrInsert(btreeItem(cell)) },
-			_count:  func() int { return tr.Len() },
-			_scan: func() {
-				tr.Ascend(func(item btree.Item) bool {
-					return true
-				})
-			},
-			_range: func(cell uint64, iter func(cell uint64) bool) {
-				tr.AscendGreaterOrEqual(btreeItem(cell), func(item btree.Item) bool {
-					return iter(uint64(item.(btreeItem)))
-				})
-			},
-			_remove: func(cell uint64) { tr.Delete(btreeItem(cell)) },
-		}
-		testPerf(t, ctx)
-	})
+	// CellTree
+	for i := 0; i < 4; i++ {
+		randomized := i/2 == 0
+		shuffled := i%2 == 0
+		t.Run("CellTree", func(t *testing.T) {
+			printPerfLabel("celltree", randomized, shuffled)
+			var tr Tree
+			ctx := perfCtx{
+				_insert: func(cell uint64) { tr.Insert(cell, nil) },
+				_count:  func() int { return tr.Count() },
+				_scan: func() {
+					tr.Scan(func(cell uint64, data interface{}) bool {
+						return true
+					})
+				},
+				_range: func(cell uint64, iter func(cell uint64) bool) {
+					tr.Range(cell, func(cell uint64, data interface{}) bool {
+						return iter(cell)
+					})
+				},
+				_remove: func(cell uint64) { tr.Remove(cell, nil) },
+			}
+			testPerf(t, ctx, randomized, shuffled)
+		})
+	}
+
+	// BTree
+	for i := 0; i < 4; i++ {
+		randomized := i/2 == 0
+		shuffled := i%2 == 0
+		t.Run("BTree", func(t *testing.T) {
+			printPerfLabel("btree", randomized, shuffled)
+			tr := btree.New(16)
+			ctx := perfCtx{
+				_insert: func(cell uint64) { tr.ReplaceOrInsert(btreeItem(cell)) },
+				_count:  func() int { return tr.Len() },
+				_scan: func() {
+					tr.Ascend(func(item btree.Item) bool {
+						return true
+					})
+				},
+				_range: func(cell uint64, iter func(cell uint64) bool) {
+					tr.AscendGreaterOrEqual(btreeItem(cell), func(item btree.Item) bool {
+						return iter(uint64(item.(btreeItem)))
+					})
+				},
+				_remove: func(cell uint64) { tr.Delete(btreeItem(cell)) },
+			}
+			testPerf(t, ctx, randomized, shuffled)
+		})
+	}
 }
 
-func testPerf(t *testing.T, ctx perfCtx) {
+func testPerf(t *testing.T, ctx perfCtx, randomozed, shuffled bool) {
 	N := 1024 * 1024
-	ints := random(N, false)
+	var ints []uint64
+	if randomozed {
+		ints = random(N, false)
+	} else {
+		start := rand.Uint64()
+		for i := 0; i < N; i++ {
+			ints = append(ints, start+uint64(i))
+		}
+	}
+	if shuffled {
+		shuffle(ints)
+	} else {
+		sort.Slice(ints, func(i, j int) bool {
+			return ints[i] < ints[j]
+		})
+	}
+
 	var ms1, ms2 runtime.MemStats
 	defer func() {
 		heapBytes := int(ms2.HeapAlloc - ms1.HeapAlloc)
@@ -250,6 +289,7 @@ func testPerf(t *testing.T, ctx perfCtx) {
 	runtime.GC()
 	time.Sleep(time.Millisecond * 100)
 	runtime.ReadMemStats(&ms2)
+
 	if ctx._count() != N {
 		t.Fatalf("expected %v, got %v", N, ctx._count())
 	}
@@ -338,7 +378,7 @@ func TestPerfLongTime(t *testing.T) {
 			insops++
 		}
 		insdur += time.Since(xstart)
-		if tr.Len() != N {
+		if tr.Count() != N {
 			t.Fatal("shit")
 		}
 		runtime.GC()
