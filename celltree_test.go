@@ -73,7 +73,7 @@ func testEquals(t *testing.T, random, sorted []uint64) {
 func TestRandom(t *testing.T) {
 	start := time.Now()
 	for time.Since(start) < time.Second {
-		N := (rand.Int() % 10000)
+		N := (rand.Int() % 100000)
 		if N%2 == 1 {
 			N++
 		}
@@ -123,6 +123,42 @@ func TestRandom(t *testing.T) {
 			t.Fatalf("expected %v, got %v", 0, tr.Count())
 		}
 	}
+}
+
+func TestVarious(t *testing.T) {
+	var tr Tree
+	tr.Remove(0, nil)
+	tr.RemoveWhen(0, nil)
+	tr.Scan(nil)
+	tr.Range(0, nil)
+
+	N := 2000
+	for i := 0; i < N; i++ {
+		tr.Insert(uint64(i), i)
+	}
+
+	for i := 0; i < N; i++ {
+		var j int
+		tr.Scan(func(cell uint64, data interface{}) bool {
+			if j == i {
+				return false
+			}
+			j++
+			return true
+		})
+	}
+
+	for i := 0; i < N; i++ {
+		var j int
+		tr.Range(0, func(cell uint64, data interface{}) bool {
+			if j == i {
+				return false
+			}
+			j++
+			return true
+		})
+	}
+
 }
 
 func TestWhen(t *testing.T) {
@@ -188,6 +224,11 @@ func printPerfLabel(label string, randomized, shuffled bool) {
 	println(") --")
 }
 func TestPerf(t *testing.T) {
+	if os.Getenv("BASICPERF") != "1" {
+		fmt.Printf("TestPerf disabled (BASICPERF=1)\n")
+		return
+	}
+
 	// CellTree
 	for i := 0; i < 4; i++ {
 		randomized := i/2 == 0
@@ -345,7 +386,7 @@ func TestPerfLongTime(t *testing.T) {
 	}
 	x := 0
 	N := 1024 * 1024
-	ints := random(N, false)
+	ints := random(N, true)
 	var tr Tree
 	var insops, remops int
 	var ms1, ms2 runtime.MemStats
