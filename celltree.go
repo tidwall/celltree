@@ -4,7 +4,7 @@
 
 package celltree
 
-const maxItems = 256 //256 // max items per node
+const maxItems = 256 // max items per node
 const nBits = 8      // 1, 2,  4,   8  - match nNodes with the correct nBits
 const nNodes = 256   // 2, 4, 16, 256  - match nNodes with the correct nBits
 
@@ -36,46 +36,51 @@ func (tr *Tree) Insert(cell uint64, data interface{}) {
 	tr.count++
 }
 
-func (tr *Tree) insert(n *node, cell uint64, data interface{}, bits uint) {
-	// again:
-	if !n.branch {
-		// node is a leaf
-		if bits == 0 || len(n.items) < maxItems {
-			// find the target index for the new cell
-			if len(n.items) == 0 || n.items[len(n.items)-1].cell <= cell {
-				n.items = append(n.items, item{cell: cell, data: data})
-			} else {
-				i := tr.find(n, cell)
-				// create space for the new cell
-				n.items = append(n.items, item{})
-				// move other cells over to make room for new cell
-				copy(n.items[i+1:], n.items[i:len(n.items)-1])
-				// assign the new cell
-				n.items[i] = item{cell: cell, data: data}
-				// add one to the count
-			}
-			return
-		}
-		// node is at capacity. we need to split it
-		tr.split(n, bits)
-		// insert item again
-		tr.insert(n, cell, data, bits)
-		return
-	}
-	i := int(cell >> bits & (nNodes - 1))
-	for i >= len(n.nodes) {
-		n.nodes = append(n.nodes, nil)
-	}
-	if n.nodes[i] == nil {
-		n.nodes[i] = new(node)
-		n.ncount++
-	}
-	tr.insert(n.nodes[i], cell, data, bits-nBits)
-}
-
 // Count returns the number of items in the tree.
 func (tr *Tree) Count() int {
 	return tr.count
+}
+
+func cellIndex(cell uint64, bits uint) int {
+	return int(cell >> bits & uint64(nNodes-1))
+}
+
+func (tr *Tree) insert(n *node, cell uint64, data interface{}, bits uint) {
+	if !n.branch {
+		// leaf node
+		if bits != 0 && len(n.items) >= maxItems {
+			// split leaf. it's at capacity
+			tr.split(n, bits)
+			// insert item again
+			tr.insert(n, cell, data, bits)
+		} else {
+			// find the target index for the new cell
+			if len(n.items) == 0 || n.items[len(n.items)-1].cell <= cell {
+				// the new cell is greater than the last cell in leaf, so
+				// we can just append it
+				n.items = append(n.items, item{cell: cell, data: data})
+			} else {
+				index := tr.find(n, cell)
+				// create space for the new cell
+				n.items = append(n.items, item{})
+				// move other cells over to make room for new cell
+				copy(n.items[index+1:], n.items[index:len(n.items)-1])
+				// assign the new cell
+				n.items[index] = item{cell: cell, data: data}
+			}
+		}
+	} else {
+		// branch node
+		index := cellIndex(cell, bits)
+		for index >= len(n.nodes) {
+			n.nodes = append(n.nodes, nil)
+		}
+		if n.nodes[index] == nil {
+			n.nodes[index] = new(node)
+			n.ncount++
+		}
+		tr.insert(n.nodes[index], cell, data, bits-nBits)
+	}
 }
 
 func (tr *Tree) split(n *node, bits uint) {
@@ -129,15 +134,15 @@ func (tr *Tree) remove(n *node, cell uint64, data interface{}, bits uint,
 		}
 		return false
 	}
-	i := int(cell >> bits & (nNodes - 1))
-	if i >= len(n.nodes) || n.nodes[i] == nil ||
-		!tr.remove(n.nodes[i], cell, data, bits-nBits, cond) {
+	index := cellIndex(cell, bits)
+	if index >= len(n.nodes) || n.nodes[index] == nil ||
+		!tr.remove(n.nodes[index], cell, data, bits-nBits, cond) {
 		// didn't find the cell
 		return false
 	}
-	if !n.nodes[i].branch && len(n.nodes[i].items) == 0 {
+	if !n.nodes[index].branch && len(n.nodes[index].items) == 0 {
 		// target leaf is empty, remove it.
-		n.nodes[i] = nil
+		n.nodes[index] = nil
 		n.ncount--
 		if n.ncount == 0 {
 			// node is empty, convert it to a leaf
@@ -211,18 +216,18 @@ func (tr *Tree) _range(n *node, cell uint64, bits uint, iter func(cell uint64, d
 		}
 		return hit, true
 	}
-	i := int(cell >> bits & (nNodes - 1))
-	if i >= len(n.nodes) || n.nodes[i] == nil {
+	index := cellIndex(cell, bits)
+	if index >= len(n.nodes) || n.nodes[index] == nil {
 		return hit, true
 	}
-	for ; i < len(n.nodes); i++ {
-		if n.nodes[i] != nil {
+	for ; index < len(n.nodes); index++ {
+		if n.nodes[index] != nil {
 			if hit {
-				if !tr.scan(n.nodes[i], iter) {
+				if !tr.scan(n.nodes[index], iter) {
 					return hit, false
 				}
 			} else {
-				hit, ok = tr._range(n.nodes[i], cell, bits-nBits, iter)
+				hit, ok = tr._range(n.nodes[index], cell, bits-nBits, iter)
 				if !ok {
 					return hit, false
 				}
