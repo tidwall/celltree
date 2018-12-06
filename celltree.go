@@ -238,7 +238,11 @@ func (tr *Tree) Range(
 	if tr.root == nil {
 		return
 	}
-	tr.root._range(cell, 64-nBits, iter)
+	if cell == 0 {
+		tr.root.scan(iter)
+	} else {
+		tr.root._range(cell, 64-nBits, iter)
+	}
 }
 
 func (n *node) _range(
