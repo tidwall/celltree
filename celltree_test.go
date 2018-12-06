@@ -440,3 +440,12 @@ func TestPerfLongTime(t *testing.T) {
 	}
 	fmt.Printf("\n")
 }
+
+func TestDupCells(t *testing.T) {
+	N := 1000000
+	cell := uint64(388098102398102938)
+	var tr Tree
+	for i := 0; i < N; i++ {
+		tr.Insert(cell, i)
+	}
+}

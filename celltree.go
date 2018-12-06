@@ -49,7 +49,7 @@ func cellIndex(cell uint64, bits uint) int {
 func (n *node) insert(cell uint64, data interface{}, bits uint) {
 	if !n.branch {
 		// leaf node
-		if bits != 0 && len(n.items) >= maxItems {
+		if bits >= nBits && len(n.items) >= maxItems {
 			// split leaf. it's at capacity
 			n.splitLeaf(bits)
 			// insert item again, but this time node is a branch
