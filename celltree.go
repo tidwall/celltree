@@ -6,8 +6,9 @@ package celltree
 
 const nBits = 7      // 1, 2,  4,   8  - match nNodes with the correct nBits
 const nNodes = 128   // 2, 4, 16, 256  - match nNodes with the correct nBits
-const maxItems = 256 // max items per node
+const maxItems = 128 // max items per node
 const minItems = maxItems * 40 / 100
+const maxUint64 = uint64(0xFFFFFFFFFFFFFFFF)
 
 type item struct {
 	cell uint64
@@ -108,6 +109,45 @@ func (n *node) findLeafItem(cell uint64) int {
 		}
 	}
 	return i
+}
+
+// Range ...
+func (tr *Tree) Range(
+	pivot uint64,
+	iter func(cell uint64, data interface{}) bool,
+) {
+	if tr.root != nil {
+		tr.root.nodeRange(pivot, 64-nBits, false, iter)
+	}
+}
+
+func (n *node) nodeRange(
+	pivot uint64, bits uint, hit bool,
+	iter func(cell uint64, data interface{}) bool,
+) (hitout bool, ok bool) {
+
+	if !n.branch {
+		for _, item := range n.items {
+			if hit || item.cell >= pivot {
+				if !iter(item.cell, item.data) {
+					return false, false
+				}
+			}
+		}
+		return true, true
+	}
+
+	index := 0
+	if !hit {
+		index = cellIndex(pivot, bits)
+	}
+	for ; index < len(n.nodes); index++ {
+		hit, ok = n.nodes[index].nodeRange(pivot, bits-nBits, hit, iter)
+		if !ok {
+			return false, false
+		}
+	}
+	return hit, true
 }
 
 // Remove removes an item from the tree based on it's cell and data values.
@@ -229,56 +269,4 @@ func (n *node) scan(iter func(cell uint64, data interface{}) bool) bool {
 		}
 	}
 	return true
-}
-
-// Range iterates over the three start with the cell param.
-func (tr *Tree) Range(
-	cell uint64, iter func(cell uint64, data interface{}) bool,
-) {
-	if tr.root == nil {
-		return
-	}
-	if cell == 0 {
-		tr.root.scan(iter)
-	} else {
-		tr.root._range(cell, 64-nBits, iter)
-	}
-}
-
-func (n *node) _range(
-	cell uint64, bits uint,
-	iter func(cell uint64, data interface{}) bool,
-) (hit, ok bool) {
-	if !n.branch {
-		hit = true
-		i := n.findLeafItem(cell) - 1
-		for ; i >= 0; i-- {
-			if n.items[i].cell < cell {
-				break
-			}
-		}
-		i++
-		for ; i < len(n.items); i++ {
-			if !iter(n.items[i].cell, n.items[i].data) {
-				return hit, false
-			}
-		}
-		return hit, true
-	}
-	index := cellIndex(cell, bits)
-	for ; index < len(n.nodes); index++ {
-		if n.nodes[index].count > 0 {
-			if hit {
-				if !n.nodes[index].scan(iter) {
-					return hit, false
-				}
-			} else {
-				hit, ok = n.nodes[index]._range(cell, bits-nBits, iter)
-				if !ok {
-					return hit, false
-				}
-			}
-		}
-	}
-	return hit, true
 }

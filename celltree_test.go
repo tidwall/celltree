@@ -70,58 +70,64 @@ func testEquals(t *testing.T, random, sorted []uint64) {
 	}
 }
 
+func TestRandomSingleStep(t *testing.T) {
+	testRandomStep(t)
+}
+
+func testRandomStep(t *testing.T) {
+	N := (rand.Int() % 10000)
+	if N%2 == 1 {
+		N++
+	}
+	ints := random(N, rand.Int()%2 == 0)
+	var tr Tree
+	for i := 0; i < N; i++ {
+		tr.Insert(ints[i], nil)
+	}
+	if tr.Count() != N {
+		t.Fatalf("expected %v, got %v", N, tr.Count())
+	}
+	var all []uint64
+	tr.Scan(func(cell uint64, data interface{}) bool {
+		all = append(all, cell)
+		return true
+	})
+	testEquals(t, ints, all)
+	if N > 0 {
+		pivot := ints[len(ints)/2]
+		var rangeCells []uint64
+		tr.Range(pivot, func(cell uint64, data interface{}) bool {
+			rangeCells = append(rangeCells, cell)
+			return true
+		})
+
+		var scanCells []uint64
+		tr.Scan(func(cell uint64, data interface{}) bool {
+			if cell >= pivot {
+				scanCells = append(scanCells, cell)
+			}
+			return true
+		})
+		testEquals(t, scanCells, rangeCells)
+	}
+	shuffle(ints)
+	for i := 0; i < len(ints)/2; i++ {
+		tr.Remove(ints[i], nil)
+	}
+	if tr.Count() != N/2 {
+		t.Fatalf("expected %v, got %v", N/2, tr.Count())
+	}
+	for i := len(ints) / 2; i < len(ints); i++ {
+		tr.Remove(ints[i], nil)
+	}
+	if tr.Count() != 0 {
+		t.Fatalf("expected %v, got %v", 0, tr.Count())
+	}
+}
 func TestRandom(t *testing.T) {
 	start := time.Now()
 	for time.Since(start) < time.Second {
-		N := (rand.Int() % 100000)
-		if N%2 == 1 {
-			N++
-		}
-		ints := random(N, rand.Int()%2 == 0)
-		var tr Tree
-		for i := 0; i < N; i++ {
-			tr.Insert(ints[i], nil)
-		}
-		if tr.Count() != N {
-			t.Fatalf("expected %v, got %v", N, tr.Count())
-		}
-		var all []uint64
-		tr.Scan(func(cell uint64, data interface{}) bool {
-			all = append(all, cell)
-			return true
-		})
-		testEquals(t, ints, all)
-		if N > 0 {
-			shuffle(ints)
-			start := ints[len(ints)/2]
-			var all []uint64
-			tr.Range(start, func(cell uint64, data interface{}) bool {
-				all = append(all, cell)
-				return true
-			})
-			sortInts(ints)
-			var halved []uint64
-			for i := 0; i < len(ints); i++ {
-				if ints[i] >= start {
-					halved = ints[i:]
-					break
-				}
-			}
-			testEquals(t, halved, all)
-		}
-		shuffle(ints)
-		for i := 0; i < len(ints)/2; i++ {
-			tr.Remove(ints[i], nil)
-		}
-		if tr.Count() != N/2 {
-			t.Fatalf("expected %v, got %v", N/2, tr.Count())
-		}
-		for i := len(ints) / 2; i < len(ints); i++ {
-			tr.Remove(ints[i], nil)
-		}
-		if tr.Count() != 0 {
-			t.Fatalf("expected %v, got %v", 0, tr.Count())
-		}
+		testRandomStep(t)
 	}
 }
 
@@ -447,5 +453,51 @@ func TestDupCells(t *testing.T) {
 	var tr Tree
 	for i := 0; i < N; i++ {
 		tr.Insert(cell, i)
+	}
+}
+
+func cellsEqual(cells1, cells2 []uint64) bool {
+	if len(cells1) != len(cells2) {
+		return false
+	}
+	for i := 0; i < len(cells1); i++ {
+		if cells1[i] != cells2[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestRange(t *testing.T) {
+	N := 100000
+	start := uint64(10767499590539539808)
+
+	var tr Tree
+	for i := 0; i < N; i++ {
+		cell := start + uint64(i)
+		tr.Insert(cell, cell)
+	}
+	var count int
+	var cells1 []uint64
+	tr.Scan(func(cell uint64, value interface{}) bool {
+		cells1 = append(cells1, cell)
+		count++
+		return true
+	})
+	if count != N {
+		t.Fatalf("expected %v, got %v", N, count)
+	}
+	count = 0
+	var cells2 []uint64
+	tr.Range(0, func(cell uint64, value interface{}) bool {
+		cells2 = append(cells2, cell)
+		count++
+		return true
+	})
+	if count != N {
+		t.Fatalf("expected %v, got %v", N, count)
+	}
+	if !cellsEqual(cells1, cells2) {
+		t.Fatal("not equal")
 	}
 }
