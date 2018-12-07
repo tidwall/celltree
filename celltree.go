@@ -111,45 +111,6 @@ func (n *node) findLeafItem(cell uint64) int {
 	return i
 }
 
-// Range ...
-func (tr *Tree) Range(
-	pivot uint64,
-	iter func(cell uint64, data interface{}) bool,
-) {
-	if tr.root != nil {
-		tr.root.nodeRange(pivot, 64-nBits, false, iter)
-	}
-}
-
-func (n *node) nodeRange(
-	pivot uint64, bits uint, hit bool,
-	iter func(cell uint64, data interface{}) bool,
-) (hitout bool, ok bool) {
-
-	if !n.branch {
-		for _, item := range n.items {
-			if hit || item.cell >= pivot {
-				if !iter(item.cell, item.data) {
-					return false, false
-				}
-			}
-		}
-		return true, true
-	}
-
-	index := 0
-	if !hit {
-		index = cellIndex(pivot, bits)
-	}
-	for ; index < len(n.nodes); index++ {
-		hit, ok = n.nodes[index].nodeRange(pivot, bits-nBits, hit, iter)
-		if !ok {
-			return false, false
-		}
-	}
-	return hit, true
-}
-
 // Remove removes an item from the tree based on it's cell and data values.
 func (tr *Tree) Remove(cell uint64, data interface{}) {
 	if tr.root == nil {
@@ -269,4 +230,41 @@ func (n *node) scan(iter func(cell uint64, data interface{}) bool) bool {
 		}
 	}
 	return true
+}
+
+// Range iterates over the three start with the cell param.
+func (tr *Tree) Range(
+	pivot uint64,
+	iter func(cell uint64, data interface{}) bool,
+) {
+	if tr.root != nil {
+		tr.root.nodeRange(pivot, 64-nBits, false, iter)
+	}
+}
+
+func (n *node) nodeRange(
+	pivot uint64, bits uint, hit bool,
+	iter func(cell uint64, data interface{}) bool,
+) (hitout bool, ok bool) {
+	if !n.branch {
+		for _, item := range n.items {
+			if hit || item.cell >= pivot {
+				if !iter(item.cell, item.data) {
+					return false, false
+				}
+			}
+		}
+		return true, true
+	}
+	index := 0
+	if !hit {
+		index = cellIndex(pivot, bits)
+	}
+	for ; index < len(n.nodes); index++ {
+		hit, ok = n.nodes[index].nodeRange(pivot, bits-nBits, hit, iter)
+		if !ok {
+			return false, false
+		}
+	}
+	return hit, true
 }
