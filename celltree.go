@@ -8,7 +8,6 @@ const nBits = 7      // 1, 2,  4,   8  - match nNodes with the correct nBits
 const nNodes = 128   // 2, 4, 16, 256  - match nNodes with the correct nBits
 const maxItems = 128 // max items per node
 const minItems = maxItems * 40 / 100
-const maxUint64 = uint64(0xFFFFFFFFFFFFFFFF)
 
 type item struct {
 	cell uint64
@@ -28,16 +27,6 @@ type Tree struct {
 	root  *node // root node
 }
 
-// Insert inserts an item into the tree. Items are ordered by it's cell.
-// The extra param is a simple user context value.
-func (tr *Tree) Insert(cell uint64, data interface{}) {
-	if tr.root == nil {
-		tr.root = new(node)
-	}
-	tr.root.insert(cell, data, 64-nBits)
-	tr.count++
-}
-
 // Count returns the number of items in the tree.
 func (tr *Tree) Count() int {
 	return tr.count
@@ -47,26 +36,82 @@ func cellIndex(cell uint64, bits uint) int {
 	return int(cell >> bits & uint64(nNodes-1))
 }
 
-func (n *node) insert(cell uint64, data interface{}, bits uint) {
+// InsertOrReplace inserts an item into the tree. Items are ordered by it's
+// cell. The extra param is a simple user context value. The cond function is
+// used to allow for replacing an existing cell with a new cell. When the
+// 'replace' return value is set to false, then the original data is inserted.
+// When the 'replace' value is true the existing cell data is replace with
+// newData.
+func (tr *Tree) InsertOrReplace(
+	cell uint64, data interface{},
+	cond func(data interface{}) (newData interface{}, replace bool),
+) {
+	if tr.root == nil {
+		tr.root = new(node)
+	}
+	if tr.root.insert(cell, data, 64-nBits, cond) {
+		tr.count++
+	}
+}
+
+// Insert inserts an item into the tree. Items are ordered by it's cell.
+// The extra param is a simple user context value.
+func (tr *Tree) Insert(cell uint64, data interface{}) {
+	tr.InsertOrReplace(cell, data, nil)
+}
+
+func (n *node) insert(
+	cell uint64, data interface{}, bits uint,
+	cond func(data interface{}) (newData interface{}, replace bool),
+) (inserted bool) {
 	if !n.branch {
 		// leaf node
 		if bits >= nBits && len(n.items) >= maxItems {
 			// split leaf. it's at capacity
-			n.splitLeaf(bits)
+			n.branch = true
+			// reset the node count to zero
+			n.count = 0
+			// create space for all of the nodes
+			n.nodes = make([]node, nNodes)
+			// reinsert all of leaf items
+			for i := 0; i < len(n.items); i++ {
+				n.insert(n.items[i].cell, n.items[i].data, bits, nil)
+			}
+			// release the leaf items
+			n.items = nil
 			// insert item again, but this time node is a branch
-			n.insert(cell, data, bits)
+			if !n.insert(cell, data, bits, cond) {
+				return false
+			}
 			// we need to deduct one item from the count, otherwise it'll be
 			// the target cell will be counted twice
 			n.count--
 		} else {
 			// find the target index for the new cell
-			if len(n.items) == 0 || n.items[len(n.items)-1].cell <= cell {
+			if len(n.items) == 0 || n.items[len(n.items)-1].cell < cell {
 				// the new cell is greater than the last cell in leaf, so
 				// we can just append it
 				n.items = append(n.items, item{cell: cell, data: data})
 			} else {
 				// locate the index of the cell in the leaf
 				index := n.findLeafItem(cell)
+				if cond != nil {
+					// find a duplicate cell
+					for i := index - 1; i >= 0; i-- {
+						if n.items[i].cell != cell {
+							// did not find
+							break
+						}
+						// found a duplicate
+						newData, replace := cond(n.items[i].data)
+						if replace {
+							// must replace the cell data instead of inserting
+							// a new one.
+							n.items[i].data = newData
+							return false
+						}
+					}
+				}
 				// create space for the new cell
 				n.items = append(n.items, item{})
 				// move other cells over to make room for new cell
@@ -80,21 +125,13 @@ func (n *node) insert(cell uint64, data interface{}, bits uint) {
 		// locate the index of the child node in the leaf
 		index := cellIndex(cell, bits)
 		// insert the cell into the child node
-		n.nodes[index].insert(cell, data, bits-nBits)
+		if !n.nodes[index].insert(cell, data, bits-nBits, cond) {
+			return false
+		}
 	}
 	// increment the node
 	n.count++
-}
-
-// splitLeaf into a branch
-func (n *node) splitLeaf(bits uint) {
-	n.branch = true
-	n.count = 0
-	n.nodes = make([]node, nNodes)
-	for i := 0; i < len(n.items); i++ {
-		n.insert(n.items[i].cell, n.items[i].data, bits)
-	}
-	n.items = nil
+	return true
 }
 
 // find an index of the cell using a binary search
@@ -102,7 +139,7 @@ func (n *node) findLeafItem(cell uint64) int {
 	i, j := 0, len(n.items)
 	for i < j {
 		h := i + (j-i)/2
-		if !(cell < n.items[h].cell) {
+		if cell >= n.items[h].cell {
 			i = h + 1
 		} else {
 			j = h
@@ -261,9 +298,13 @@ func (n *node) nodeRange(
 		index = cellIndex(pivot, bits)
 	}
 	for ; index < len(n.nodes); index++ {
-		hit, ok = n.nodes[index].nodeRange(pivot, bits-nBits, hit, iter)
-		if !ok {
-			return false, false
+		if n.count == 0 {
+			hit = true
+		} else {
+			hit, ok = n.nodes[index].nodeRange(pivot, bits-nBits, hit, iter)
+			if !ok {
+				return false, false
+			}
 		}
 	}
 	return hit, true

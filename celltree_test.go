@@ -501,3 +501,29 @@ func TestRange(t *testing.T) {
 		t.Fatal("not equal")
 	}
 }
+
+func TestDuplicates(t *testing.T) {
+
+	N := 100000
+	var tr Tree
+	for i := 0; i < N; i++ {
+		tr.Insert(uint64(i), i)
+	}
+	tr.InsertOrReplace(50000, 50000,
+		func(data interface{}) (newData interface{}, replace bool) {
+			return
+		},
+	)
+	if tr.Count() != N+1 {
+		t.Fatalf("expected %v, got %v", N+1, tr.Count())
+	}
+	tr.InsertOrReplace(25000, 25000,
+		func(data interface{}) (newData interface{}, replace bool) {
+			return "hello", true
+		},
+	)
+	if tr.Count() != N+1 {
+		t.Fatalf("expected %v, got %v", N+1, tr.Count())
+	}
+
+}
