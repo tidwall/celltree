@@ -210,7 +210,7 @@ func TestVarious(t *testing.T) {
 	tr.DeleteWhen(0, nil)
 	tr.Scan(nil)
 	tr.Range(0, nil)
-	tr.RangeDelete(0, nil)
+	tr.RangeDelete(0, math.MaxUint64, nil)
 
 	N := 2000
 	for i := 0; i < N; i++ {
@@ -679,7 +679,7 @@ func TestRangeDelete(t *testing.T) {
 
 	// starting from the second half, do not delete any
 	var count int
-	tr.RangeDelete(uint64(start+N/2),
+	tr.RangeDelete(uint64(start+N/2), math.MaxUint64,
 		func(cell uint64, value interface{}) (shouldDelete, ok bool) {
 			count++
 			return false, true
@@ -694,7 +694,7 @@ func TestRangeDelete(t *testing.T) {
 
 	// delete the last half of the items
 	count = 0
-	tr.RangeDelete(uint64(start+N/2),
+	tr.RangeDelete(uint64(start+N/2), math.MaxUint64,
 		func(cell uint64, value interface{}) (shouldDelete, ok bool) {
 			count++
 			return true, true
@@ -816,13 +816,10 @@ func TestSingleRandomRangeDelete(t *testing.T) {
 	// }
 
 	var hits1 []uint64
-	tr.RangeDelete(min,
+	tr.RangeDelete(min, max,
 		func(cell uint64, value interface{}) (shouldDelete bool, ok bool) {
 			if cell < min {
 				t.Fatalf("cell %v is less than %v", cell, min)
-			}
-			if cell > max {
-				return false, false
 			}
 			var ok2 bool
 			shouldDelete, ok2 = deletes[cell]
@@ -846,4 +843,42 @@ func TestSingleRandomRangeDelete(t *testing.T) {
 	if !cellsEqual(hits1, hits2) {
 		t.Fatal("cells not equal")
 	}
+}
+
+func testRangeDeleteNoIterator(t *testing.T, N int) {
+	var tr Tree
+	var all []uint64
+	for i := 0; i < N; i++ {
+		cell := rand.Uint64()
+		all = append(all, cell)
+		tr.Insert(cell, nil)
+	}
+	sortInts(all)
+	start := uint64(math.MaxUint64 / 4)
+	end := start + math.MaxUint64/2
+	tr.RangeDelete(start, end, nil)
+	tr.sane()
+	var cells1 []uint64
+	tr.Scan(func(cell uint64, _ interface{}) bool {
+		cells1 = append(cells1, cell)
+		return true
+	})
+	var cells2 []uint64
+	for _, cell := range all {
+		if cell < start || cell > end {
+			cells2 = append(cells2, cell)
+		}
+	}
+	if !cellsEqual(cells1, cells2) {
+		t.Fatal("not equal")
+	}
+}
+
+func TestRangeDeleteNoIterator(t *testing.T) {
+	testRangeDeleteNoIterator(t, 0)
+	testRangeDeleteNoIterator(t, maxItems/2)
+	testRangeDeleteNoIterator(t, maxItems-1)
+	testRangeDeleteNoIterator(t, maxItems)
+	testRangeDeleteNoIterator(t, maxItems+1)
+	testRangeDeleteNoIterator(t, 100000)
 }

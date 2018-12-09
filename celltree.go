@@ -9,8 +9,8 @@ const (
 	numNodes = 128 // [2,4,8,16...256] match numNodes with the correct numBits
 )
 const (
-	maxItems = 128
-	minItems = maxItems * 40 / 100
+	maxItems = 256                 // max num of items in a leaf
+	minItems = maxItems * 40 / 100 // min num of items in a branch
 )
 
 type item struct {
@@ -341,34 +341,54 @@ func (n *node) nodeRange(
 // RangeDelete iterates over the tree starting with the pivot param and "asks"
 // the iterator if the item should be deleted.
 func (tr *Tree) RangeDelete(
-	pivot uint64,
+	start, end uint64,
 	iter func(cell uint64, data interface{}) (shouldDelete bool, ok bool),
 ) {
 	if tr.root == nil {
 		return
 	}
-	_, deleted, _ := tr.root.nodeRangeDelete(pivot, 64-numBits, false, iter)
+	_, deleted, _ := tr.root.nodeRangeDelete(
+		start, end, 64-numBits, false, iter)
 	tr.count -= deleted
 }
 
 func (n *node) nodeRangeDelete(
-	pivot uint64, bits uint, hit bool,
+	start, end uint64, bits uint, hit bool,
 	iter func(cell uint64, data interface{}) (shouldDelete bool, ok bool),
 ) (hitout bool, deleted int, ok bool) {
 	if !n.branch {
 		ok = true
-		for i := 0; i < len(n.items); i++ {
-			if n.items[i].cell < pivot {
+		var skipIterator bool
+		if iter == nil && len(n.items) > 0 {
+			if n.items[0].cell >= start &&
+				n.items[len(n.items)-1].cell <= end {
+				// clear the entire leaf
+				deleted = len(n.items)
+				skipIterator = true
+			}
+		}
+		for i := 0; !skipIterator && i < len(n.items); i++ {
+			if n.items[i].cell < start {
 				continue
 			}
 			var shouldDelete bool
 			if ok {
 				// ask if the current item should be deleted and/or if the
 				// iterator should stop.
-				shouldDelete, ok = iter(n.items[i].cell, n.items[i].data)
+				if n.items[i].cell > end {
+					// past the end, don't delete and don't continue
+					ok = false
+				} else {
+					if iter == nil {
+						shouldDelete = true
+					} else {
+						shouldDelete, ok = iter(
+							n.items[i].cell, n.items[i].data)
+					}
+				}
 			} else {
-				// a previous iterator requested to stop, so do not delete the
-				// current item.
+				// a previous iterator requested to stop, so do not delete
+				// the current item.
 				shouldDelete = false
 			}
 			if shouldDelete {
@@ -421,7 +441,7 @@ func (n *node) nodeRangeDelete(
 		} else {
 			// target leaf node has not been reached yet so we need to determine
 			// the best path to get to it.
-			index = cellIndex(pivot, bits)
+			index = cellIndex(start, bits)
 		}
 		for ; index < len(n.nodes); index++ {
 			if n.nodes[index].count == 0 {
@@ -429,7 +449,7 @@ func (n *node) nodeRangeDelete(
 			} else {
 				var ndeleted int
 				hit, ndeleted, ok = n.nodes[index].nodeRangeDelete(
-					pivot, bits-numBits, hit, iter)
+					start, end, bits-numBits, hit, iter)
 				deleted += ndeleted
 				if !ok {
 					break
