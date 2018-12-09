@@ -348,12 +348,12 @@ func (tr *Tree) RangeDelete(
 		return
 	}
 	_, deleted, _ := tr.root.nodeRangeDelete(
-		start, end, 64-numBits, false, iter)
+		start, end, 64-numBits, 0, false, iter)
 	tr.count -= deleted
 }
 
 func (n *node) nodeRangeDelete(
-	start, end uint64, bits uint, hit bool,
+	start, end uint64, bits uint, base uint64, hit bool,
 	iter func(cell uint64, data interface{}) (shouldDelete bool, ok bool),
 ) (hitout bool, deleted int, ok bool) {
 	if !n.branch {
@@ -447,12 +447,30 @@ func (n *node) nodeRangeDelete(
 			if n.nodes[index].count == 0 {
 				hit = true
 			} else {
-				var ndeleted int
-				hit, ndeleted, ok = n.nodes[index].nodeRangeDelete(
-					start, end, bits-numBits, hit, iter)
-				deleted += ndeleted
-				if !ok {
-					break
+				var dropped bool
+				if hit && iter == nil {
+					cellStart := (base + uint64(index)) << bits
+					cellEnd := ((base + uint64(index+1)) << bits) - 1
+					// we've already hit a leaf and the iter is nil. It's
+					// possible that this entire node can be deleted if it's
+					// cell range fits within start/end.
+					if cellStart >= start && cellEnd <= end {
+						// drop the node altogether
+						deleted += n.nodes[index].count
+						n.nodes[index] = node{}
+						dropped = true
+					}
+				}
+				if !dropped {
+					var ndeleted int
+					hit, ndeleted, ok = n.nodes[index].nodeRangeDelete(
+						start, end, bits-numBits,
+						(base<<numBits)+uint64(index),
+						hit, iter)
+					deleted += ndeleted
+					if !ok {
+						break
+					}
 				}
 			}
 		}
