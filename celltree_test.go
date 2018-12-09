@@ -6,6 +6,7 @@ package celltree
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"runtime"
@@ -19,6 +20,7 @@ import (
 
 func init() {
 	seed := (time.Now().UnixNano())
+	//seed = 1544374208106411000
 	println("seed:", seed)
 	rand.Seed(seed)
 }
@@ -64,10 +66,78 @@ func testEquals(t *testing.T, random, sorted []uint64) {
 	}
 	for i := 0; i < len(sorted); i++ {
 		if sorted[i] != random[i] {
-			println(2)
 			t.Fatal("not equal")
 		}
 	}
+}
+
+// sane tests the sanity of the tree. Any problems will panic.
+func (tr *Tree) sane() {
+	if tr.root == nil {
+		if tr.count != 0 {
+			panic(fmt.Sprintf("sane: expected %d, got %d", 0, tr.count))
+		}
+		return
+	}
+	count, _ := tr.root.saneCount(0, 64-numBits)
+	if tr.count != count {
+		panic(fmt.Sprintf("sane: expected %d, got %d", count, tr.count))
+	}
+}
+
+func (n *node) saneCount(cell uint64, bits uint) (count int, cellout uint64) {
+	if !n.branch {
+		// all leaves count should match the number of items.
+		if n.count != len(n.items) {
+			panic(fmt.Sprintf("leaf has a count of %d, but %d items in array",
+				n.count, len(n.items)))
+		}
+		// leaves should never go above max items unless they are at max depth.
+		if n.count > maxItems && !maxDepth(bits) {
+			panic(fmt.Sprintf("leaf has a count of %d, but maxItems is %d",
+				n.count, maxItems))
+		}
+		// all leaves should not have non-nil leaves
+		if len(n.items) == 0 && n.items != nil {
+			panic(fmt.Sprintf("leaf has zero items, but a non-nil items array"))
+		}
+		// test if the items cells are in order
+		for i := 0; i < len(n.items); i++ {
+			if n.items[i].cell < cell {
+				panic(fmt.Sprintf("leaf out of order at index: %d", i))
+			}
+			cell = n.items[i].cell
+		}
+		// all leaves should *not* fall below 40% capacity
+		min := cap(n.items) * 40 / 100
+		if len(n.items) <= min && len(n.items) > 0 {
+			println(len(n.items), cap(n.items), min)
+			panic(fmt.Sprintf("leaf is underfilled"))
+		}
+		return len(n.items), cell
+	}
+	// all branches should have a count of at least 1
+	if n.count <= 0 {
+		panic(fmt.Sprintf("branch has a count of %d", n.count))
+	}
+	// all branches should have a nil items array
+	if n.items != nil {
+		panic(fmt.Sprintf("branch has non-nil items"))
+	}
+	// check each node
+	for i := 0; i < len(n.nodes); i++ {
+		ncount, ncell := n.nodes[i].saneCount(cell, bits-numBits)
+		count += ncount
+		if ncell < cell {
+			panic(fmt.Sprintf("branch out of order at index: %d", i))
+		}
+		cell = ncell
+	}
+	if n.count != count {
+		panic(fmt.Sprintf("branch has wrong count, expected %d, got %d",
+			count, n.count))
+	}
+	return count, cell
 }
 
 func TestRandomSingleStep(t *testing.T) {
@@ -83,6 +153,7 @@ func testRandomStep(t *testing.T) {
 	var tr Tree
 	for i := 0; i < N; i++ {
 		tr.Insert(ints[i], nil)
+		tr.sane()
 	}
 	if tr.Count() != N {
 		t.Fatalf("expected %v, got %v", N, tr.Count())
@@ -112,13 +183,15 @@ func testRandomStep(t *testing.T) {
 	}
 	shuffle(ints)
 	for i := 0; i < len(ints)/2; i++ {
-		tr.Remove(ints[i], nil)
+		tr.Delete(ints[i], nil)
+		tr.sane()
 	}
 	if tr.Count() != N/2 {
 		t.Fatalf("expected %v, got %v", N/2, tr.Count())
 	}
 	for i := len(ints) / 2; i < len(ints); i++ {
-		tr.Remove(ints[i], nil)
+		tr.Delete(ints[i], nil)
+		tr.sane()
 	}
 	if tr.Count() != 0 {
 		t.Fatalf("expected %v, got %v", 0, tr.Count())
@@ -133,14 +206,16 @@ func TestRandom(t *testing.T) {
 
 func TestVarious(t *testing.T) {
 	var tr Tree
-	tr.Remove(0, nil)
-	tr.RemoveWhen(0, nil)
+	tr.Delete(0, nil)
+	tr.DeleteWhen(0, nil)
 	tr.Scan(nil)
 	tr.Range(0, nil)
+	tr.RangeDelete(0, nil)
 
 	N := 2000
 	for i := 0; i < N; i++ {
 		tr.Insert(uint64(i), i)
+		tr.sane()
 	}
 
 	for i := 0; i < N; i++ {
@@ -167,19 +242,24 @@ func TestVarious(t *testing.T) {
 
 }
 
-func TestWhen(t *testing.T) {
+func TestDeleteWhen(t *testing.T) {
 	var tr Tree
-
 	tr.Insert(10, 0)
+	tr.sane()
 	tr.Insert(5, 1)
+	tr.sane()
 	tr.Insert(31, 2)
+	tr.sane()
 	tr.Insert(16, 3)
+	tr.sane()
 	tr.Insert(9, 4)
+	tr.sane()
 	tr.Insert(5, 5)
+	tr.sane()
 	tr.Insert(16, 6)
-
+	tr.sane()
 	var count int
-	tr.RemoveWhen(16, func(data interface{}) bool {
+	tr.DeleteWhen(16, func(data interface{}) bool {
 		count++
 		return false
 	})
@@ -189,8 +269,7 @@ func TestWhen(t *testing.T) {
 	if tr.Count() != 7 {
 		t.Fatalf("expected %v, got %v", 7, tr.Count())
 	}
-
-	tr.RemoveWhen(16, func(data interface{}) bool {
+	tr.DeleteWhen(16, func(data interface{}) bool {
 		if data.(int) == 3 {
 			return true
 		}
@@ -255,7 +334,7 @@ func TestPerf(t *testing.T) {
 						return iter(cell)
 					})
 				},
-				_remove: func(cell uint64) { tr.Remove(cell, nil) },
+				_remove: func(cell uint64) { tr.Delete(cell, nil) },
 			}
 			testPerf(t, ctx, randomized, shuffled)
 		})
@@ -414,7 +493,7 @@ func TestPerfLongTime(t *testing.T) {
 		opp := rand.Uint64()
 		xstart = time.Now()
 		for i := x; i < len(ints); i += 4 {
-			tr.Remove(ints[i], nil)
+			tr.Delete(ints[i], nil)
 			ints[i] ^= opp
 			remops++
 		}
@@ -469,13 +548,14 @@ func cellsEqual(cells1, cells2 []uint64) bool {
 }
 
 func TestRange(t *testing.T) {
-	N := 100000
+	N := 10000
 	start := uint64(10767499590539539808)
 
 	var tr Tree
 	for i := 0; i < N; i++ {
 		cell := start + uint64(i)
 		tr.Insert(cell, cell)
+		tr.sane()
 	}
 	var count int
 	var cells1 []uint64
@@ -500,30 +580,270 @@ func TestRange(t *testing.T) {
 	if !cellsEqual(cells1, cells2) {
 		t.Fatal("not equal")
 	}
+
+	// random ranges over some random data
+
+	var all []uint64
+	tr = Tree{}
+	for i := 0; i < N; i++ {
+		cell := rand.Uint64()
+		all = append(all, cell)
+		tr.Insert(cell, cell)
+		tr.sane()
+	}
+	sortInts(all)
+
+	for i := 0; i < 100; i++ {
+		min := rand.Uint64()
+		max := rand.Uint64()
+		if min > max {
+			min, max = max, min
+		}
+		var hits1 []uint64
+		tr.Range(min, func(cell uint64, value interface{}) bool {
+			if cell < min {
+				t.Fatalf("cell %v is less than %v", cell, min)
+			}
+			if cell > max {
+				return false
+			}
+			hits1 = append(hits1, cell)
+			return true
+		})
+		var hits2 []uint64
+		for _, cell := range all {
+			if cell >= min && cell <= max {
+				hits2 = append(hits2, cell)
+			}
+		}
+		if !cellsEqual(hits1, hits2) {
+			t.Fatal("cells not equal")
+		}
+	}
+
 }
 
 func TestDuplicates(t *testing.T) {
-
-	N := 100000
+	N := 10000
 	var tr Tree
 	for i := 0; i < N; i++ {
 		tr.Insert(uint64(i), i)
+		tr.sane()
 	}
-	tr.InsertOrReplace(50000, 50000,
+	tr.InsertOrReplace(5000, 5000,
 		func(data interface{}) (newData interface{}, replace bool) {
-			return
+			return nil, false
 		},
 	)
+	tr.sane()
 	if tr.Count() != N+1 {
 		t.Fatalf("expected %v, got %v", N+1, tr.Count())
 	}
-	tr.InsertOrReplace(25000, 25000,
+	tr.InsertOrReplace(2500, 2500,
 		func(data interface{}) (newData interface{}, replace bool) {
 			return "hello", true
 		},
 	)
+	tr.sane()
 	if tr.Count() != N+1 {
 		t.Fatalf("expected %v, got %v", N+1, tr.Count())
 	}
 
+	for i := 0; i < 500; i++ {
+		tr.InsertOrReplace(uint64(i)+10000000, i,
+			func(data interface{}) (newData interface{}, replace bool) {
+				if i%2 == 0 {
+					return nil, false
+				}
+				return nil, false
+			},
+		)
+		tr.sane()
+	}
+}
+
+func TestRangeDelete(t *testing.T) {
+	N := 1000
+	start := 5000
+	var tr Tree
+	var cells1 []uint64
+	for i := 0; i < N; i++ {
+		cell := uint64(start + i)
+		tr.Insert(cell, i)
+		tr.sane()
+		cells1 = append(cells1, cell)
+	}
+	if tr.Count() != N {
+		t.Fatalf("expected %v, got %v", N, tr.Count())
+	}
+
+	// starting from the second half, do not delete any
+	var count int
+	tr.RangeDelete(uint64(start+N/2),
+		func(cell uint64, value interface{}) (shouldDelete, ok bool) {
+			count++
+			return false, true
+		},
+	)
+	if count != N/2 {
+		t.Fatalf("expected %v, got %v", N/2, count)
+	}
+	if tr.Count() != N {
+		t.Fatalf("expected %v, got %v", N, tr.Count())
+	}
+
+	// delete the last half of the items
+	count = 0
+	tr.RangeDelete(uint64(start+N/2),
+		func(cell uint64, value interface{}) (shouldDelete, ok bool) {
+			count++
+			return true, true
+		},
+	)
+	if count != N/2 {
+		t.Fatalf("expected %v, got %v", N/2, count)
+	}
+	if tr.Count() != N/2 {
+		t.Fatalf("expected %v, got %v", N/2, tr.Count())
+	}
+
+	var cells2 []uint64
+	tr.Scan(func(cell uint64, value interface{}) bool {
+		cells2 = append(cells2, cell)
+		return true
+	})
+	if !cellsEqual(cells1[:N/2], cells2) {
+		t.Fatal("not equal")
+	}
+}
+
+func TestRandomRangeDelete(t *testing.T) {
+	var count int
+	start := time.Now()
+	for time.Since(start) < time.Second {
+		TestSingleRandomRangeDelete(t)
+		count++
+	}
+}
+func TestSingleRandomRangeDelete(t *testing.T) {
+	// random ranges over some random data and randomly cells
+	N := rand.Int() % 50000
+	if N%2 == 1 {
+		N++
+	}
+	if N < 2 {
+		N = 2
+	}
+	var all []uint64
+	var tr Tree
+	switch rand.Int() % 5 {
+	case 0:
+		// random and spread out
+		for i := 0; i < N; i++ {
+			cell := rand.Uint64()
+			all = append(all, cell)
+			tr.Insert(cell, cell)
+		}
+	case 1:
+		// random and centered
+		for i := 0; i < N; i++ {
+			cell := rand.Uint64()/2 + math.MaxUint64/4
+			all = append(all, cell)
+			tr.Insert(cell, cell)
+		}
+	case 2:
+		// random and left-aligned
+		for i := 0; i < N; i++ {
+			cell := rand.Uint64() / 2
+			all = append(all, cell)
+			tr.Insert(cell, cell)
+		}
+	case 3:
+		// random and right-aligned
+		for i := 0; i < N; i++ {
+			cell := rand.Uint64()/2 + math.MaxInt64/2
+			all = append(all, cell)
+			tr.Insert(cell, cell)
+		}
+	case 4:
+		// sequential and centered
+		for i := 0; i < N; i++ {
+			cell := math.MaxUint64/2 - uint64(N/2+i)
+			all = append(all, cell)
+			tr.Insert(cell, cell)
+		}
+	}
+	sortInts(all)
+	deletes := make(map[uint64]bool)
+	for _, cell := range all {
+		deletes[cell] = rand.Int()%2 == 0
+	}
+	var min, max uint64
+	switch rand.Uint64() % 4 {
+	case 0:
+		// start at zero
+		min = 0
+	case 1:
+		// start before first
+		min = all[0] / 2
+	case 2:
+		// start on the first
+		min = all[0]
+	case 3:
+		// start in random position
+		min = rand.Uint64()
+	}
+	switch rand.Uint64() % 4 {
+	case 0:
+		// end at max uint64
+		min = math.MaxUint64
+	case 1:
+		// end after last
+		min = (math.MaxUint64-all[len(all)-1])/2 + all[len(all)-1]
+	case 2:
+		// end on the last
+		min = all[len(all)-1]
+	case 3:
+		// end in random position
+		min = rand.Uint64()
+	}
+	if min > max {
+		min, max = max, min
+	}
+
+	// if min == 0 {
+	// 	println(min == 0, tr.root.nodes[0].count)
+	// }
+
+	var hits1 []uint64
+	tr.RangeDelete(min,
+		func(cell uint64, value interface{}) (shouldDelete bool, ok bool) {
+			if cell < min {
+				t.Fatalf("cell %v is less than %v", cell, min)
+			}
+			if cell > max {
+				return false, false
+			}
+			var ok2 bool
+			shouldDelete, ok2 = deletes[cell]
+			if !ok2 {
+				t.Fatal("missing cell in deletes map")
+			}
+			if shouldDelete {
+				// delete this item
+				hits1 = append(hits1, cell)
+			}
+			return shouldDelete, true
+		},
+	)
+	tr.sane()
+	var hits2 []uint64
+	for _, cell := range all {
+		if cell >= min && cell <= max && deletes[cell] {
+			hits2 = append(hits2, cell)
+		}
+	}
+	if !cellsEqual(hits1, hits2) {
+		t.Fatal("cells not equal")
+	}
 }

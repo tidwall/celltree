@@ -4,10 +4,14 @@
 
 package celltree
 
-const nBits = 7      // 1, 2,  4,   8  - match nNodes with the correct nBits
-const nNodes = 128   // 2, 4, 16, 256  - match nNodes with the correct nBits
-const maxItems = 128 // max items per node
-const minItems = maxItems * 40 / 100
+const (
+	numBits  = 7   // [1,2,3,4...8]    match numNodes with the correct numBits
+	numNodes = 128 // [2,4,8,16...256] match numNodes with the correct numBits
+)
+const (
+	maxItems = 128
+	minItems = maxItems * 40 / 100
+)
 
 type item struct {
 	cell uint64
@@ -33,7 +37,7 @@ func (tr *Tree) Count() int {
 }
 
 func cellIndex(cell uint64, bits uint) int {
-	return int(cell >> bits & uint64(nNodes-1))
+	return int(cell >> bits & uint64(numNodes-1))
 }
 
 // InsertOrReplace inserts an item into the tree. Items are ordered by it's
@@ -49,7 +53,7 @@ func (tr *Tree) InsertOrReplace(
 	if tr.root == nil {
 		tr.root = new(node)
 	}
-	if tr.root.insert(cell, data, 64-nBits, cond) {
+	if tr.root.insert(cell, data, 64-numBits, cond) {
 		tr.count++
 	}
 }
@@ -60,29 +64,37 @@ func (tr *Tree) Insert(cell uint64, data interface{}) {
 	tr.InsertOrReplace(cell, data, nil)
 }
 
+func (n *node) splitLeaf(bits uint) {
+	n.branch = true
+	// reset the node count to zero
+	n.count = 0
+	// create space for all of the nodes
+	n.nodes = make([]node, numNodes)
+	// reinsert all of leaf items
+	for i := 0; i < len(n.items); i++ {
+		n.insert(n.items[i].cell, n.items[i].data, bits, nil)
+	}
+	// release the leaf items
+	n.items = nil
+}
+
+func maxDepth(bits uint) bool {
+	return bits < numBits
+}
+
 func (n *node) insert(
 	cell uint64, data interface{}, bits uint,
 	cond func(data interface{}) (newData interface{}, replace bool),
 ) (inserted bool) {
 	if !n.branch {
 		// leaf node
-		if bits >= nBits && len(n.items) >= maxItems {
+		atcap := !maxDepth(bits) && len(n.items) >= maxItems
+	insertAgain:
+		if atcap && cond == nil {
 			// split leaf. it's at capacity
-			n.branch = true
-			// reset the node count to zero
-			n.count = 0
-			// create space for all of the nodes
-			n.nodes = make([]node, nNodes)
-			// reinsert all of leaf items
-			for i := 0; i < len(n.items); i++ {
-				n.insert(n.items[i].cell, n.items[i].data, bits, nil)
-			}
-			// release the leaf items
-			n.items = nil
+			n.splitLeaf(bits)
 			// insert item again, but this time node is a branch
-			if !n.insert(cell, data, bits, cond) {
-				return false
-			}
+			n.insert(cell, data, bits, nil)
 			// we need to deduct one item from the count, otherwise it'll be
 			// the target cell will be counted twice
 			n.count--
@@ -91,6 +103,10 @@ func (n *node) insert(
 			if len(n.items) == 0 || n.items[len(n.items)-1].cell < cell {
 				// the new cell is greater than the last cell in leaf, so
 				// we can just append it
+				if atcap {
+					cond = nil
+					goto insertAgain
+				}
 				n.items = append(n.items, item{cell: cell, data: data})
 			} else {
 				// locate the index of the cell in the leaf
@@ -111,6 +127,12 @@ func (n *node) insert(
 							return false
 						}
 					}
+					// condition func was not safisfied. this means that the
+					// new item will be inserted/
+					if atcap {
+						cond = nil
+						goto insertAgain
+					}
 				}
 				// create space for the new cell
 				n.items = append(n.items, item{})
@@ -125,7 +147,7 @@ func (n *node) insert(
 		// locate the index of the child node in the leaf
 		index := cellIndex(cell, bits)
 		// insert the cell into the child node
-		if !n.nodes[index].insert(cell, data, bits-nBits, cond) {
+		if !n.nodes[index].insert(cell, data, bits-numBits, cond) {
 			return false
 		}
 	}
@@ -148,20 +170,17 @@ func (n *node) findLeafItem(cell uint64) int {
 	return i
 }
 
-// Remove removes an item from the tree based on it's cell and data values.
-func (tr *Tree) Remove(cell uint64, data interface{}) {
+// Delete removes an item from the tree based on it's cell and data values.
+func (tr *Tree) Delete(cell uint64, data interface{}) {
 	if tr.root == nil {
 		return
 	}
-	deleted := tr.root.remove(cell, data, 64-nBits, nil)
-	if deleted {
-		// successfully deleted the item.
-		// decrement the count
+	if tr.root.nodeDelete(cell, data, 64-numBits, nil) {
 		tr.count--
 	}
 }
 
-func (n *node) remove(
+func (n *node) nodeDelete(
 	cell uint64, data interface{}, bits uint,
 	cond func(data interface{}) bool,
 ) (deleted bool) {
@@ -178,18 +197,23 @@ func (n *node) remove(
 				// found the cell, remove it now
 				// if the len of items has fallen below 40% of it's cap then
 				// shrink the items
-				min := cap(n.items) * 40 / 100
-				if len(n.items)-1 <= min {
-					// shrink and realloc the array
-					items := make([]item, len(n.items)-1, cap(n.items)/2)
-					copy(items[:i], n.items[:i])
-					copy(items[i:], n.items[i+1:len(n.items)])
-					n.items = items
+				if len(n.items) == 1 {
+					// do not have non-nil leaves hanging around
+					n.items = nil
 				} else {
-					// keep the same array
-					n.items[i] = item{}
-					copy(n.items[i:len(n.items)-1], n.items[i+1:])
-					n.items = n.items[:len(n.items)-1]
+					min := cap(n.items) * 40 / 100
+					if len(n.items)-1 <= min {
+						// shrink and realloc the array
+						items := make([]item, len(n.items)-1, cap(n.items)/2)
+						copy(items[:i], n.items[:i])
+						copy(items[i:], n.items[i+1:len(n.items)])
+						n.items = items
+					} else {
+						// keep the same array
+						n.items[i] = item{}
+						copy(n.items[i:len(n.items)-1], n.items[i+1:])
+						n.items = n.items[:len(n.items)-1]
+					}
 				}
 				deleted = true
 				break
@@ -198,7 +222,7 @@ func (n *node) remove(
 	} else {
 		// branch node
 		index := cellIndex(cell, bits)
-		deleted = n.nodes[index].remove(cell, data, bits-nBits, cond)
+		deleted = n.nodes[index].nodeDelete(cell, data, bits-numBits, cond)
 	}
 	if deleted {
 		// an item was deleted from this node or a child node
@@ -210,6 +234,17 @@ func (n *node) remove(
 		}
 	}
 	return deleted
+}
+
+// DeleteWhen removes an item from the tree based on it's cell and when the
+// cond func returns true. It will delete at most a maximum of one item.
+func (tr *Tree) DeleteWhen(cell uint64, cond func(data interface{}) bool) {
+	if tr.root == nil {
+		return
+	}
+	if tr.root.nodeDelete(cell, nil, 64-numBits, cond) {
+		tr.count--
+	}
 }
 
 func (n *node) flatten(items []item) []item {
@@ -229,17 +264,7 @@ func (n *node) compactBranch() {
 	n.items = n.flatten(nil)
 	n.branch = false
 	n.nodes = nil
-}
-
-// RemoveWhen removes an item from the tree based on it's cell and when the
-// cond func returns true. It will delete at most a maximum of one item.
-func (tr *Tree) RemoveWhen(cell uint64, cond func(data interface{}) bool) {
-	if tr.root == nil {
-		return
-	}
-	if tr.root.remove(cell, nil, 64-nBits, cond) {
-		tr.count--
-	}
+	n.count = len(n.items)
 }
 
 // Scan iterates over the entire tree. Return false from iter function to stop.
@@ -269,13 +294,13 @@ func (n *node) scan(iter func(cell uint64, data interface{}) bool) bool {
 	return true
 }
 
-// Range iterates over the three start with the cell param.
+// Range iterates over the tree starting with the pivot param.
 func (tr *Tree) Range(
 	pivot uint64,
 	iter func(cell uint64, data interface{}) bool,
 ) {
 	if tr.root != nil {
-		tr.root.nodeRange(pivot, 64-nBits, false, iter)
+		tr.root.nodeRange(pivot, 64-numBits, false, iter)
 	}
 }
 
@@ -285,27 +310,141 @@ func (n *node) nodeRange(
 ) (hitout bool, ok bool) {
 	if !n.branch {
 		for _, item := range n.items {
-			if hit || item.cell >= pivot {
-				if !iter(item.cell, item.data) {
-					return false, false
-				}
+			if item.cell < pivot {
+				continue
+			}
+			if !iter(item.cell, item.data) {
+				return false, false
 			}
 		}
 		return true, true
 	}
-	index := 0
-	if !hit {
+	var index int
+	if hit {
+		index = 0
+	} else {
 		index = cellIndex(pivot, bits)
 	}
 	for ; index < len(n.nodes); index++ {
-		if n.count == 0 {
+		if n.nodes[index].count == 0 {
 			hit = true
 		} else {
-			hit, ok = n.nodes[index].nodeRange(pivot, bits-nBits, hit, iter)
+			hit, ok = n.nodes[index].nodeRange(pivot, bits-numBits, hit, iter)
 			if !ok {
 				return false, false
 			}
 		}
 	}
 	return hit, true
+}
+
+// RangeDelete iterates over the tree starting with the pivot param and "asks"
+// the iterator if the item should be deleted.
+func (tr *Tree) RangeDelete(
+	pivot uint64,
+	iter func(cell uint64, data interface{}) (shouldDelete bool, ok bool),
+) {
+	if tr.root == nil {
+		return
+	}
+	_, deleted, _ := tr.root.nodeRangeDelete(pivot, 64-numBits, false, iter)
+	tr.count -= deleted
+}
+
+func (n *node) nodeRangeDelete(
+	pivot uint64, bits uint, hit bool,
+	iter func(cell uint64, data interface{}) (shouldDelete bool, ok bool),
+) (hitout bool, deleted int, ok bool) {
+	if !n.branch {
+		ok = true
+		for i := 0; i < len(n.items); i++ {
+			if n.items[i].cell < pivot {
+				continue
+			}
+			var shouldDelete bool
+			if ok {
+				// ask if the current item should be deleted and/or if the
+				// iterator should stop.
+				shouldDelete, ok = iter(n.items[i].cell, n.items[i].data)
+			} else {
+				// a previous iterator requested to stop, so do not delete the
+				// current item.
+				shouldDelete = false
+			}
+			if shouldDelete {
+				// should delete item. increment the delete counter
+				deleted++
+			} else {
+				// should keep item.
+				if deleted > 0 {
+					// there's room in a previously deleted slot, move the
+					// current item there.
+					n.items[i-deleted] = n.items[i]
+					n.items[i].data = nil
+				} else if !ok {
+					// the iterate requested a stop and since there's no
+					// deleted items, we can immediately stop here.
+					break
+				}
+			}
+		}
+		if deleted > 0 {
+			// there was some deleted items so we need to adjust the length
+			// of the items array to reflect the change
+			n.items = n.items[:len(n.items)-deleted]
+			if len(n.items) == 0 {
+				n.items = nil
+			} else {
+				// check if the base array needs to be shrunk/reallocated.
+				ncap := cap(n.items)
+				min := ncap * 40 / 100
+				if len(n.items) <= min {
+					for len(n.items) <= min {
+						ncap /= 2
+						min = ncap * 40 / 100
+					}
+					// shrink and realloc the array
+					items := make([]item, len(n.items), ncap)
+					copy(items, n.items)
+					n.items = items
+				}
+			}
+		}
+		// set the hit flag once a leaf is reached
+		hit = true
+	} else {
+		var index int
+		if hit {
+			// target leaf node has been reached. this means we can just start at
+			// index zero and expect that all of the following noes are candidates.
+			index = 0
+		} else {
+			// target leaf node has not been reached yet so we need to determine
+			// the best path to get to it.
+			index = cellIndex(pivot, bits)
+		}
+		for ; index < len(n.nodes); index++ {
+			if n.nodes[index].count == 0 {
+				hit = true
+			} else {
+				var ndeleted int
+				hit, ndeleted, ok = n.nodes[index].nodeRangeDelete(
+					pivot, bits-numBits, hit, iter)
+				deleted += ndeleted
+				if !ok {
+					break
+				}
+			}
+		}
+	}
+	if deleted > 0 {
+		// an item was deleted from this node or a child node
+		// decrement the counter
+		n.count -= deleted
+		if n.branch && n.count <= minItems {
+			// compact the branch into a leaf
+			n.compactBranch()
+		}
+	}
+	return hit, deleted, ok
 }
