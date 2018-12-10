@@ -294,23 +294,23 @@ func (n *node) scan(iter func(cell uint64, data interface{}) bool) bool {
 	return true
 }
 
-// Range iterates over the tree starting with the pivot param.
+// Range iterates over the tree starting with the start param.
 func (tr *Tree) Range(
-	pivot uint64,
+	start uint64,
 	iter func(cell uint64, data interface{}) bool,
 ) {
 	if tr.root != nil {
-		tr.root.nodeRange(pivot, 64-numBits, false, iter)
+		tr.root.nodeRange(start, 64-numBits, false, iter)
 	}
 }
 
 func (n *node) nodeRange(
-	pivot uint64, bits uint, hit bool,
+	start uint64, bits uint, hit bool,
 	iter func(cell uint64, data interface{}) bool,
 ) (hitout bool, ok bool) {
 	if !n.branch {
 		for _, item := range n.items {
-			if item.cell < pivot {
+			if item.cell < start {
 				continue
 			}
 			if !iter(item.cell, item.data) {
@@ -323,13 +323,13 @@ func (n *node) nodeRange(
 	if hit {
 		index = 0
 	} else {
-		index = cellIndex(pivot, bits)
+		index = cellIndex(start, bits)
 	}
 	for ; index < len(n.nodes); index++ {
 		if n.nodes[index].count == 0 {
 			hit = true
 		} else {
-			hit, ok = n.nodes[index].nodeRange(pivot, bits-numBits, hit, iter)
+			hit, ok = n.nodes[index].nodeRange(start, bits-numBits, hit, iter)
 			if !ok {
 				return false, false
 			}
@@ -338,7 +338,7 @@ func (n *node) nodeRange(
 	return hit, true
 }
 
-// RangeDelete iterates over the tree starting with the pivot param and "asks"
+// RangeDelete iterates over the tree starting with the start param and "asks"
 // the iterator if the item should be deleted.
 func (tr *Tree) RangeDelete(
 	start, end uint64,
