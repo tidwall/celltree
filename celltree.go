@@ -158,16 +158,12 @@ func (n *node) insert(
 
 // find an index of the cell using a binary search
 func (n *node) findLeafItem(cell uint64) int {
-	i, j := 0, len(n.items)
-	for i < j {
-		h := i + (j-i)/2
-		if cell >= n.items[h].cell {
-			i = h + 1
-		} else {
-			j = h
+	for i := len(n.items) - 1; i >= 0; i-- {
+		if cell >= n.items[i].cell {
+			return i + 1
 		}
 	}
-	return i
+	return 0
 }
 
 // Delete removes an item from the tree based on it's cell and data values.
