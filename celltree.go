@@ -110,7 +110,7 @@ func (n *node) insert(
 				n.items = append(n.items, item{cell: cell, data: data})
 			} else {
 				// locate the index of the cell in the leaf
-				index := n.findLeafItem(cell)
+				index := n.findLeafItemSeqIns(cell)
 				if cond != nil {
 					// find a duplicate cell
 					for i := index - 1; i >= 0; i-- {
@@ -156,14 +156,32 @@ func (n *node) insert(
 	return true
 }
 
-// find an index of the cell using a binary search
-func (n *node) findLeafItem(cell uint64) int {
+// findLeafItemSeqIns position where the return value is the index for
+// inserting a new cell into the items array.
+// Optimized for sequential inserts
+func (n *node) findLeafItemSeqIns(cell uint64) int {
 	for i := len(n.items) - 1; i >= 0; i-- {
 		if cell >= n.items[i].cell {
 			return i + 1
 		}
 	}
 	return 0
+}
+
+// findLeafItemBin position where the return value is the index for
+// inserting a new cell into the items array.
+// Optimized for binary searching
+func (n *node) findLeafItemBin(cell uint64) int {
+	i, j := 0, len(n.items)
+	for i < j {
+		h := i + (j-i)/2
+		if cell >= n.items[h].cell {
+			i = h + 1
+		} else {
+			j = h
+		}
+	}
+	return i
 }
 
 // Delete removes an item from the tree based on it's cell and data values.
@@ -182,7 +200,7 @@ func (n *node) nodeDelete(
 ) (deleted bool) {
 	if !n.branch {
 		// leaf node
-		i := n.findLeafItem(cell) - 1
+		i := n.findLeafItemBin(cell) - 1
 		for ; i >= 0; i-- {
 			if n.items[i].cell != cell {
 				// did not find
