@@ -1,0 +1,4 @@
+github.com/google/btree v1.0.0 h1:0udJVsspx3VBr5FwtLhQQtuAsVc79tTq0ocGIPAU6qo=
+github.com/google/btree v1.0.0/go.mod h1:lNA+9X1NB3Zf8V7Ke586lFgjr2dZNuvo3lPJSGZ5JPQ=
+github.com/tidwall/lotsa v1.0.1 h1:w4gpDvI7RdkgbMC0q5ndKqG2ffrwCgerUY/gM2TYkH4=
+github.com/tidwall/lotsa v1.0.1/go.mod h1:X6NiU+4yHA3fE3Puvpnn1XMDrFZrE9JO2/w+UMuqgR8=
